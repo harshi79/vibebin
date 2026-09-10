@@ -10,7 +10,7 @@ export async function GET(req: Request) {
   const q = (url.searchParams.get('q') ?? '').trim().toLowerCase();
   const db = await getDb();
   const where = q
-    ? sql`lower(${users.username}) LIKE ${`%${q}%`}`
+    ? sql`${users.username} LIKE ${`%${q}%`}`
     : sql`1`;
   const rows = await db
     .select({

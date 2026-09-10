@@ -47,7 +47,7 @@ export default async function ProfilePage({ params }: Props) {
     .select({ user: users, profile: profiles })
     .from(users)
     .leftJoin(profiles, eq(users.id, profiles.userId))
-    .where(sql`lower(${users.username}) = ${username.toLowerCase()}`)
+    .where(eq(users.username, username))
     .limit(1);
 
   if (!row) notFound();

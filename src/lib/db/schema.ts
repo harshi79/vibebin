@@ -10,13 +10,17 @@ import {
 // ------------------------------------------------------------------
 // Users
 // ------------------------------------------------------------------
-export const users = sqliteTable('users', {
-  id: text('id').primaryKey(), // UUID stored as text
-  username: text('username').notNull().unique(),
-  passwordHash: text('password_hash').notNull(),
-  createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
-  usernameChangedAt: integer('username_changed_at', { mode: 'timestamp_ms' }),
-});
+export const users = sqliteTable(
+  'users',
+  {
+    id: text('id').primaryKey(), // UUID stored as text
+    username: text('username').notNull().unique(),
+    passwordHash: text('password_hash').notNull(),
+    createdAt: integer('created_at', { mode: 'timestamp_ms' }).notNull(),
+    usernameChangedAt: integer('username_changed_at', { mode: 'timestamp_ms' }),
+  },
+  (t) => [index('users_created_idx').on(t.createdAt)],
+);
 
 // ------------------------------------------------------------------
 // Account creation tracking — enforces "max N accounts per IP"
@@ -110,6 +114,7 @@ export const pastes = sqliteTable(
   (t) => [
     index('pastes_user_idx').on(t.userId),
     index('pastes_created_idx').on(t.createdAt),
+    index('pastes_expires_idx').on(t.expiresAt),
   ],
 );
 

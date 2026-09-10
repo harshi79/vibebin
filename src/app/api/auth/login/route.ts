@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { verifyPassword, createSession } from '@/lib/auth';
@@ -22,7 +22,7 @@ export async function POST(req: Request) {
   const [user] = await db
     .select()
     .from(users)
-    .where(sql`lower(${users.username}) = ${username.toLowerCase()}`)
+    .where(eq(users.username, username))
     .limit(1);
 
   // constant-ish time: always run a compare

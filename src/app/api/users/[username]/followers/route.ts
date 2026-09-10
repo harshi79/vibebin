@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { users } from '@/lib/db/schema';
 import { getSessionUser } from '@/lib/auth';
@@ -26,7 +26,7 @@ export async function GET(req: Request, { params }: Props) {
   const [target] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.username}) = ${username.toLowerCase()}`)
+    .where(eq(users.username, username))
     .limit(1);
   if (!target) {
     return NextResponse.json({ error: 'User not found.' }, { status: 404 });
