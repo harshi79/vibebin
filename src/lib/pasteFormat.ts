@@ -113,6 +113,21 @@ export function hasRichFormatting(doc: RichDoc | string): boolean {
   );
 }
 
+/**
+ * True when rendering the doc would mount at least one sticker (a line
+ * with a `sticker` mark that survives the same `sanitizeMarks` pass the
+ * renderer applies). The paste page uses this to decide whether the
+ * server sticker pack is needed at all: plain-text pastes and rich docs
+ * without stickers render identically without it. Emoji and link marks
+ * never need the pack.
+ */
+export function richDocHasStickerMarks(doc: RichDoc | string): boolean {
+  if (typeof doc === 'string') return false;
+  return doc.lines.some((l) =>
+    sanitizeMarks(l.marks, (l.text ?? '').length).some((m) => m.kind === 'sticker'),
+  );
+}
+
 const FONT_OPTIONS = [
   { id: 'normal', label: 'Normal', css: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif' },
   { id: 'sans', label: 'Sans', css: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif' },

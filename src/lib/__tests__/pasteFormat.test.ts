@@ -18,6 +18,7 @@ import {
   detectLinks,
   hasRichFormatting,
   isRichDoc,
+  richDocHasStickerMarks,
   parsePasteContent,
   richDocToPlainText,
   sanitizeMarks,
@@ -120,6 +121,62 @@ describe('hasRichFormatting', () => {
 
   it('handles the legacy string fallback without throwing', () => {
     expect(hasRichFormatting('raw string content')).toBe(false);
+  });
+});
+
+describe('richDocHasStickerMarks — does the paste page need the sticker pack?', () => {
+  it('plain-text docs, styled docs, emoji and link marks never need the pack', () => {
+    expect(richDocHasStickerMarks(doc([{ text: 'just text' }, { text: '' }]))).toBe(false);
+    expect(richDocHasStickerMarks(doc([{ text: 'x', font: 'serif', size: 32, color: '#f00' }]))).toBe(false);
+    expect(
+      richDocHasStickerMarks(
+        doc([{ text: 'hi 🔥', marks: [{ start: 3, end: 5, kind: 'emoji', value: '🔥' }] }]),
+      ),
+    ).toBe(false);
+    expect(
+      richDocHasStickerMarks(
+        doc([
+          {
+            text: 'see https://example.com',
+            marks: [{ start: 4, end: 23, kind: 'link', value: 'https://example.com' }],
+          },
+        ]),
+      ),
+    ).toBe(false);
+  });
+
+  it('a single sticker mark anywhere in the doc requires the pack', () => {
+    const d = doc([
+      { text: 'first line' },
+      { text: 'hello :wave:', marks: [{ start: 6, end: 12, kind: 'sticker', value: ':wave:' }] },
+    ]);
+    expect(richDocHasStickerMarks(d)).toBe(true);
+  });
+
+  it('stickers with an explicit per-line url still count (alt/label come from the pack)', () => {
+    const d = doc([
+      {
+        text: ':anime-hug:',
+        marks: [{ start: 0, end: 11, kind: 'sticker', value: ':anime-hug:' }],
+        stickerUrls: { ':anime-hug:': 'https://example.com/hug.gif' },
+      },
+    ]);
+    expect(richDocHasStickerMarks(d)).toBe(true);
+  });
+
+  it('ignores sticker marks the renderer itself would drop (out of range / overlapping)', () => {
+    // Same sanitizeMarks pass the viewer applies: an out-of-range mark is
+    // never rendered, so it must not trigger a pack read either.
+    expect(
+      richDocHasStickerMarks(
+        doc([{ text: 'short', marks: [{ start: 0, end: 40, kind: 'sticker', value: ':wave:' }] }]),
+      ),
+    ).toBe(false);
+  });
+
+  it('handles the legacy string fallback and missing marks without throwing', () => {
+    expect(richDocHasStickerMarks('raw string content')).toBe(false);
+    expect(richDocHasStickerMarks(doc([{ text: 'x', marks: undefined }]))).toBe(false);
   });
 });
 
