@@ -130,6 +130,16 @@ const MIGRATION_STATEMENTS = [
   `CREATE UNIQUE INDEX IF NOT EXISTS notifications_dedupe_idx ON notifications (dedupe_key)`,
 ];
 
+// Indexes on the BASE tables (users, pastes). These can't live inside
+// MIGRATION_STATEMENTS because they reference tables that are created later
+// in SCHEMA_STATEMENTS below (a CREATE INDEX before the table exists fails).
+// They are applied idempotently to pre-existing databases on every boot, and
+// appended to the fresh-database schema so brand-new databases get them too.
+const BASE_INDEX_STATEMENTS = [
+  `CREATE INDEX IF NOT EXISTS users_created_idx ON users (created_at)`,
+  `CREATE INDEX IF NOT EXISTS pastes_expires_idx ON pastes (expires_at)`,
+];
+
 const SCHEMA_STATEMENTS = [
   ...MIGRATION_STATEMENTS,
   // Base users table.
@@ -237,6 +247,9 @@ const SCHEMA_STATEMENTS = [
     label TEXT NOT NULL DEFAULT '',
     created_at INTEGER NOT NULL
   )`,
+
+  // Base-table performance indexes (see BASE_INDEX_STATEMENTS above).
+  ...BASE_INDEX_STATEMENTS,
 ];
 
 const g = globalThis as unknown as { __vibedb?: Promise<DB> };
@@ -290,6 +303,9 @@ export async function getDb(): Promise<DB> {
         // idempotent additions for newer tables, run the one-time
         // data migrations (marker-guarded), then seed if needed.
         for (const stmt of MIGRATION_STATEMENTS) {
+          await db.run(sql.raw(stmt));
+        }
+        for (const stmt of BASE_INDEX_STATEMENTS) {
           await db.run(sql.raw(stmt));
         }
         await migrateReactionsUnified(db);

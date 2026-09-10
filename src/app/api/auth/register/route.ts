@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
-import { sql } from 'drizzle-orm';
+import { eq, sql } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { users, profiles, signupIps } from '@/lib/db/schema';
 import { hashPassword, createSession } from '@/lib/auth';
@@ -69,7 +69,7 @@ export async function POST(req: Request) {
   const [existing] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.username}) = ${username.toLowerCase()}`)
+    .where(eq(users.username, username))
     .limit(1);
   if (existing) {
     return NextResponse.json({ error: 'That username is already taken.' }, { status: 409 });

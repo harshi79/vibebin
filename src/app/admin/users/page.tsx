@@ -16,7 +16,7 @@ export default async function AdminUsersPage({ searchParams }: Props) {
   const { q = '' } = await searchParams;
   const db = await getDb();
   const where = q.trim()
-    ? sql`lower(${users.username}) LIKE ${`%${q.trim().toLowerCase()}%`}`
+    ? sql`${users.username} LIKE ${`%${q.trim().toLowerCase()}%`}`
     : sql`1`;
   const rows = await db
     .select({ id: users.id, username: users.username, createdAt: users.createdAt })

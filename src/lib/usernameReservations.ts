@@ -1,4 +1,4 @@
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { usernameReservations, type UsernameReservation } from './db/schema';
 import type { DB } from './db';
 
@@ -6,8 +6,8 @@ import type { DB } from './db';
  * Username reservation helpers (owner/admin-only feature).
  *
  * A reservation maps a lower-cased reserved name to the canonical username
- * of a real owner profile. Matching is always case-insensitive, matching
- * the app's existing username uniqueness convention (`lower(username)`).
+ * of a real owner profile. Matching is case-insensitive via the column's
+ * COLLATE NOCASE (no lower() wrapper, so the unique index stays usable).
  * No user account is ever created for a reservation.
  */
 
@@ -27,7 +27,7 @@ export async function getReservation(
   const [row] = await db
     .select()
     .from(usernameReservations)
-    .where(sql`lower(${usernameReservations.username}) = ${username.toLowerCase()}`)
+    .where(eq(usernameReservations.username, username))
     .limit(1);
   return row ?? null;
 }

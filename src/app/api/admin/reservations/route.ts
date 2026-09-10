@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server';
 import { randomUUID } from 'node:crypto';
-import { asc, eq, sql } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import { getDb } from '@/lib/db';
 import { usernameReservations, users } from '@/lib/db/schema';
 import { isAdmin } from '@/lib/auth';
@@ -51,7 +51,7 @@ export async function POST(req: Request) {
   const [targetUser] = await db
     .select({ username: users.username })
     .from(users)
-    .where(sql`lower(${users.username}) = ${targetRaw.toLowerCase()}`)
+    .where(eq(users.username, targetRaw))
     .limit(1);
   if (!targetUser) {
     return NextResponse.json({ error: 'Target profile does not exist.' }, { status: 400 });
@@ -61,7 +61,7 @@ export async function POST(req: Request) {
   const [existingUser] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.username}) = ${username}`)
+    .where(eq(users.username, username))
     .limit(1);
   if (existingUser) {
     return NextResponse.json(
@@ -74,7 +74,7 @@ export async function POST(req: Request) {
   const [existingReservation] = await db
     .select({ id: usernameReservations.id })
     .from(usernameReservations)
-    .where(sql`lower(${usernameReservations.username}) = ${username}`)
+    .where(eq(usernameReservations.username, username))
     .limit(1);
   if (existingReservation) {
     return NextResponse.json({ error: 'That username is already reserved.' }, { status: 409 });

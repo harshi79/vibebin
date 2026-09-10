@@ -88,7 +88,7 @@ export async function requestPasswordReset(input: {
   const [user] = await db
     .select({ id: users.id })
     .from(users)
-    .where(sql`lower(${users.username}) = ${username.toLowerCase()}`)
+    .where(eq(users.username, username))
     .limit(1);
   if (!user) return { issued: false, reason: 'user-not-found' };
 

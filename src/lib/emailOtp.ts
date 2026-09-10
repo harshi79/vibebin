@@ -108,7 +108,7 @@ async function findUser(username: string) {
   const [u] = await db
     .select()
     .from(users)
-    .where(sql`lower(${users.username}) = ${username.trim().toLowerCase()}`)
+    .where(eq(users.username, username.trim()))
     .limit(1);
   return u ?? null;
 }
