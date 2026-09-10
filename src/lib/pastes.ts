@@ -91,8 +91,14 @@ function dedupKey(pasteId: string, ip: string): string {
 /**
  * Increment the view counter for a paste, with a short dedup window so
  * rapid refreshes from the same visitor don't inflate the count.
+ *
+ * Returns the paste's view count AFTER the write (read back atomically
+ * via `UPDATE … RETURNING`, so concurrent viewers each see the exact
+ * value their own increment produced), or `null` when no write happened
+ * — the visitor was deduplicated or the paste no longer exists. Callers
+ * that only care about the side effect can ignore the result.
  */
-export async function incrementPasteViews(id: string) {
+export async function incrementPasteViews(id: string): Promise<number | null> {
   const db = await getDb();
 
   // getClientIp() uses next/headers which is only available inside
@@ -109,11 +115,13 @@ export async function incrementPasteViews(id: string) {
   const map = dedupG.__vibeviewDedup ?? (dedupG.__vibeviewDedup = new Map());
   const key = dedupKey(id, visitorIp);
   const last = map.get(key) ?? 0;
-  if (now - last < VIEW_DEDUP_MS) return;
+  if (now - last < VIEW_DEDUP_MS) return null;
   map.set(key, now);
 
-  await db
+  const [row] = await db
     .update(pastes)
     .set({ views: sql`${pastes.views} + 1` })
-    .where(eq(pastes.id, id));
+    .where(eq(pastes.id, id))
+    .returning({ views: pastes.views });
+  return row?.views ?? null;
 }

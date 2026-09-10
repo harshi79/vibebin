@@ -17,6 +17,7 @@ import {
   parsePasteContent,
   isRichDoc,
   hasRichFormatting,
+  richDocHasStickerMarks,
   richDocToPlainText,
 } from '@/lib/pasteFormat';
 import PasteViewer from '@/components/PasteViewer';
@@ -69,9 +70,12 @@ export default async function PastePage({ params }: Props) {
   const isOwner = !!session && session.user.id === paste.userId;
 
   if (!isOwner && !paste.passwordHash) {
-    await incrementPasteViews(paste.id);
-    const [[updated]] = await Promise.all([db.select().from(pastes).where(eq(pastes.id, id)).limit(1)]);
-    if (updated) paste.views = updated.views;
+    // One round trip: the increment reads back the stored count through
+    // `UPDATE … RETURNING`, so no second full-row SELECT is needed. When
+    // the visitor is deduplicated (rapid refresh) nothing is written and
+    // the count already loaded above is displayed unchanged.
+    const views = await incrementPasteViews(paste.id);
+    if (views !== null) paste.views = views;
   }
 
   if (paste.expiresAt && paste.expiresAt.getTime() <= Date.now()) {
@@ -93,62 +97,96 @@ export default async function PastePage({ params }: Props) {
 
   const locked = !!paste.passwordHash && !isOwner;
 
-  const [authorRows, stickerRows, bookmarked, reactionState] = await Promise.all([
-    paste.userId
+  // Parse the stored content BEFORE the data fan-out (pure CPU, no I/O)
+  // so the sticker-pack read below can be skipped when nothing rendered
+  // on this page would use it.
+  const rawUrl = `/p/${paste.id}/raw`;
+  const isRich = paste.format === 'rich';
+  const parsed = parsePasteContent(paste.format, paste.content);
+  const richDoc = isRichDoc(parsed) ? parsed : null;
+  // The pack only feeds <StickerImage> (url/alt/label lookup for sticker
+  // marks). Plain pastes, locked pastes and rich docs without sticker
+  // marks render identically without it, so they skip the read entirely.
+  const needsStickerPack = !locked && !!richDoc && richDocHasStickerMarks(richDoc);
+
+  // Author chip row (users ⟕ profiles) — resolved as its own promise so
+  // the status-sticker lookup can chain off it without holding up the
+  // rest of the fan-out.
+  const authorRowPromise = paste.userId
+    ? db
+        .select({
+          username: users.username,
+          displayName: profiles.displayName,
+          avatarUrl: profiles.avatarUrl,
+          accent: profiles.accent,
+          statusEmoji: profiles.statusEmoji,
+          statusText: profiles.statusText,
+          nameFrom: profiles.nameFrom,
+          nameTo: profiles.nameTo,
+          nameStyle: profiles.nameStyle,
+          nameEffect: profiles.nameEffect,
+          effectSpeed: profiles.effectSpeed,
+          effectIntensity: profiles.effectIntensity,
+        })
+        .from(users)
+        .leftJoin(profiles, eq(users.id, profiles.userId))
+        .where(eq(users.id, paste.userId))
+        .limit(1)
+        .then((rows) => rows[0] ?? null)
+    : Promise.resolve(null);
+
+  // ONE fan-out for everything the page needs. The hover-card reads
+  // (tags, follow counts, follow state, paste count) depend only on
+  // paste.userId, so they start alongside the author row, bookmark and
+  // reaction reads instead of waiting for them. Bounded: a handful of
+  // indexed queries for one author — no N+1.
+  const authorId = paste.userId;
+  const [
+    authorRow,
+    stickerRows,
+    bookmarked,
+    reactionState,
+    authorTags,
+    authorCounts,
+    authorFollowState,
+    authorPastes,
+    authorStatusSticker,
+  ] = await Promise.all([
+    authorRowPromise,
+    needsStickerPack
       ? db
-          .select({
-            username: users.username,
-            displayName: profiles.displayName,
-            avatarUrl: profiles.avatarUrl,
-            accent: profiles.accent,
-            statusEmoji: profiles.statusEmoji,
-            statusText: profiles.statusText,
-            nameFrom: profiles.nameFrom,
-            nameTo: profiles.nameTo,
-            nameStyle: profiles.nameStyle,
-            nameEffect: profiles.nameEffect,
-            effectSpeed: profiles.effectSpeed,
-            effectIntensity: profiles.effectIntensity,
-          })
-          .from(users)
-          .leftJoin(profiles, eq(users.id, profiles.userId))
-          .where(eq(users.id, paste.userId))
-          .limit(1)
-      : Promise.resolve([]),
-    locked
-      ? Promise.resolve([])
-      : db
           .select({
             token: stickers.token,
             url: stickers.url,
             emoji: stickers.emoji,
             label: stickers.label,
           })
-          .from(stickers),
+          .from(stickers)
+      : Promise.resolve([]),
     // Bookmarks are members-only — guests skip the indexed PK read.
     session ? isBookmarked(session.user.id, paste.id) : Promise.resolve(false),
     // The unified reaction state mirrors the GET /api/pastes/:id/reactions
     // payload: public counts (the ❤️ entry IS the like count) + the
     // signed-in user's ONE reaction (null for guests / none).
     getReactionState(paste.id, session?.user.id ?? null),
+    authorId ? getUserTags(authorId) : Promise.resolve([]),
+    authorId ? getFollowCounts(authorId) : Promise.resolve({ followers: 0, following: 0 }),
+    authorId && session && session.user.id !== authorId
+      ? isFollowingUser(session.user.id, authorId)
+      : Promise.resolve(false),
+    authorId ? countPublicPastes(authorId) : Promise.resolve(0),
+    // The author's status sticker is the one read that genuinely needs the
+    // author row (its token lives on the profile), so it chains off that
+    // promise alone — never off the unrelated reads above.
+    authorRowPromise.then((row) =>
+      row?.statusEmoji ? loadStickerByToken(row.statusEmoji, db) : null,
+    ),
   ]);
-  const authorRow = authorRows[0] ?? null;
 
   // Profile-preview data for the author identity chip (hover card).
-  // Bounded: a handful of indexed queries for one author — no N+1.
   let authorHover: ProfileHoverData | null = null;
   let followingAuthor = false;
   if (authorRow && paste.userId) {
-    const [authorTags, authorCounts, authorFollowState, authorPastes, authorStatusSticker] =
-      await Promise.all([
-        getUserTags(paste.userId),
-        getFollowCounts(paste.userId),
-        session && session.user.id !== paste.userId
-          ? isFollowingUser(session.user.id, paste.userId)
-          : Promise.resolve(false),
-        countPublicPastes(paste.userId),
-        authorRow.statusEmoji ? loadStickerByToken(authorRow.statusEmoji, db) : Promise.resolve(null),
-      ]);
     followingAuthor = authorFollowState;
     authorHover = {
       username: authorRow.username,
@@ -169,11 +207,6 @@ export default async function PastePage({ params }: Props) {
       effectIntensity: authorRow.effectIntensity ?? 60,
     };
   }
-
-  const rawUrl = `/p/${paste.id}/raw`;
-  const isRich = paste.format === 'rich';
-  const parsed = parsePasteContent(paste.format, paste.content);
-  const richDoc = isRichDoc(parsed) ? parsed : null;
 
   return (
     <div className="animate-fade-up pb-8 pt-2 sm:pt-4">
